@@ -271,6 +271,7 @@ function showData(filteredData) {
 function showDetail(idno, fileName) {
     let obj = data.find(x => x.idno === idno && x.fileName === fileName);
     //let s = obj.fullHTML.replaceAll('<l>', '<p>');
+    let linkData = getAllRSDataWithLinks(obj)
     let detailHTML = `
             <div class="offcanvas-header border-bottom">
                 <h5 class="offcanvas-title" id="offcanvasExampleLabel">${obj.title}</h5>
@@ -285,16 +286,16 @@ function showDetail(idno, fileName) {
                     <dd class="col-sm-9">${obj.idno}</dd>
 
                     <dt class="col-sm-3">Persons</dt>
-                    <dd class="col-sm-9">${obj.persons.join(', ')}</dd>
+                    <dd class="col-sm-9">${linkData.person.join(', ')}</dd>
 
                     <dt class="col-sm-3">Places</dt>
-                    <dd class="col-sm-9">${obj.places.join(', ')}</dd>
+                    <dd class="col-sm-9">${linkData.place.join(', ')}</dd>
 
                     <dt class="col-sm-3">Literary Work</dt>
-                    <dd class="col-sm-9">${obj.literaryWork.join(', ')}</dd>
+                    <dd class="col-sm-9">${linkData.literaryWork.join(', ')}</dd>
 
                     <dt class="col-sm-3">Objects</dt>
-                    <dd class="col-sm-9">${obj.objects.join(', ')}</dd>
+                    <dd class="col-sm-9">${linkData.object.join(', ')}</dd>
                 </dl>
                 <div id="divText">
                  <h4 class="border-bottom">Text</h4>
@@ -338,6 +339,32 @@ function getRSData(xmlDoc, body, attr) {
     return rsData;
 }
 
+function getAllRSDataWithLinks(obj) {
+    // Create a new DOMParser
+    const parser = new DOMParser();
+    let data = []
+    const attrs = ['person', 'place', 'object', 'literary-work'];
+    for (let attr of attrs) {
+        // Parse the XML string
+        const xmlDoc = parser.parseFromString(`<body>${obj.fullHTML}</body>`, 'text/xml');
+        const body = xmlDoc.getElementsByTagName('body')
+        let rsElements = xmlDoc.evaluate(`//*[@type='${attr}']`, body[0], null, XPathResult.ANY_TYPE, null);
+        let rsNode = rsElements.iterateNext()
+        attr = attr === 'literary-work' ? 'literaryWork' : attr;
+
+        data[attr] = []
+        while (rsNode) {
+            //rsData.push(rsNode.getAttribute('key') !== null ? rsNode.getAttribute('key').trim() : rsNode.textContent.trim())
+            data[attr].push(rsNode.outerHTML)
+            rsNode = rsElements.iterateNext();
+        }
+
+        data[attr] = [...new Set(data[attr])]
+    }
+
+    return data;
+}
+
 //////////////////////////////////////////////////
 function showPopover() {
     if ($('rs') !== undefined) {
@@ -346,7 +373,9 @@ function showPopover() {
             if ($(element).attr('xml:id') !== undefined && $(element).attr('xml:id') !== null) {
                 let id = $(element).attr('xml:id')//.split('#')[1]
                 let type = $(element).attr('type')
-                let details = xml_annotation.querySelectorAll(type); //xml_annotation.evaluate(`[xml\\:id='${id}']`, xml_annotation, null, XPathResult.ANY_TYPE, null);
+
+                //xml_annotation.evaluate(`[xml\\:id='${id}']`, xml_annotation, null, XPathResult.ANY_TYPE, null);
+                let details = xml_annotation.querySelectorAll(type === 'literary-work' ? 'bibl' : type); 
 
                 let xmlNode = '';
                 let info = '';
@@ -364,6 +393,11 @@ function showPopover() {
                     }
                     else if (type === 'person') {
                         info = getPersonInfo(xmlNode)
+                    }
+                    else if(type === 'object'){
+                        info = getObjectInfo(xmlNode)
+                    }else if(type === 'literary-work'){
+                        info = getLiteraryWorkInfo(xmlNode);
                     }
                 }
 
@@ -401,6 +435,17 @@ function getPlaceInfo(xmlNode) {
             </dl>`;
 }
 
+function getObjectInfo(xmlNode) {
+    return `<dl class="row mt-2">
+                <dt class="col-sm-3">Name:</dt>
+                <dd class="col-sm-8">${xmlNode.getElementsByTagName('objectName')[0].textContent}</dd>
+
+                <dt class="col-sm-3">Note: </dt>
+                <dd class="col-sm-8">${xmlNode.getElementsByTagName('note')[0].textContent}</dd>
+            </dl>`;
+}
+
+
 function getPersonInfo(xmlNode) {
     let birth = xmlNode.getElementsByTagName('event').length > 0 ? xmlNode.getElementsByTagName('event')[0].getAttribute('date') : '';
     let death = xmlNode.getElementsByTagName('event').length > 0 ? xmlNode.getElementsByTagName('event')[1].getAttribute('date') : '';
@@ -429,6 +474,36 @@ function getPersonInfo(xmlNode) {
     html += `<dt class="col-sm-2">Note: </dt>
                     <dd class="col-sm-10">${xmlNode.getElementsByTagName('note')[0].textContent}</dd>
             </dl>`;
+
+    return html;
+}
+
+function getLiteraryWorkInfo(xmlNode) {
+
+    let html = '<dl class="row mt-2">';
+    Array.from(xmlNode.children).forEach(element=>{
+        //console.log(element.outerHTML)
+        if(element.getAttribute('level')){
+            html += `<dt class="col-sm-3 text-capitalize">${element.nodeName} (${element.getAttribute('level')}): </dt>
+                      <dd class="col-sm-9">${element.innerHTML !== '' ? element.innerHTML : 'N/A'}</dd>`;
+        }
+        else if(element.getAttribute('type')){
+            if(element.getAttribute('type') === 'viaf'){
+                html += `<dt class="col-sm-3 text-capitalize">${element.getAttribute('type')}: </dt>
+                            <dd class="col-sm-9">${element.innerHTML !== '' ? `<a href="${element.innerHTML}" target="_blank">${element.innerHTML}</a>` : 'N/A'}</dd>`;
+            }
+            else{
+                html += `<dt class="col-sm-3 text-capitalize">${element.getAttribute('type')}: </dt>
+                          <dd class="col-sm-9">${element.getAttribute('when') !== undefined ? element.getAttribute('when') : 'N/A'}</dd>`;
+            }
+        }
+        else{
+            html += `<dt class="col-sm-3 text-capitalize">${element.nodeName}: </dt>
+                          <dd class="col-sm-9">${element.innerHTML !== '' ? element.innerHTML : 'N/A'}</dd>`;
+        }
+    })
+
+    html += `</dl>`;
 
     return html;
 }
